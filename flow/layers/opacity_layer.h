@@ -7,7 +7,7 @@
 
 #include "flutter/flow/layers/container_layer.h"
 
-namespace flow {
+namespace flutter {
 
 class OpacityLayer : public ContainerLayer {
  public:
@@ -28,9 +28,19 @@ class OpacityLayer : public ContainerLayer {
   int alpha_;
   SkPoint offset_;
 
+  // Restructure (if necessary) OpacityLayer to have only one child.
+  //
+  // This is needed to ensure that retained rendering can always be applied to
+  // save the costly saveLayer.
+  //
+  // If there are multiple children, this creates a new identity TransformLayer,
+  // sets all children to be the TransformLayer's children, and sets that
+  // TransformLayer as the single child of this OpacityLayer.
+  void EnsureSingleChild();
+
   FML_DISALLOW_COPY_AND_ASSIGN(OpacityLayer);
 };
 
-}  // namespace flow
+}  // namespace flutter
 
 #endif  // FLUTTER_FLOW_LAYERS_OPACITY_LAYER_H_
