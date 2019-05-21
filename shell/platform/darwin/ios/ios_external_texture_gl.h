@@ -25,12 +25,17 @@ class IOSExternalTextureGL : public flow::Texture {
   void OnGrContextDestroyed() override;
 
   void MarkNewFrameAvailable() override;
+    
+  IOSExternalTextureGL(unsigned int textureId);
+
 
  private:
   NSObject<FlutterTexture>* external_texture_;
   fml::CFRef<CVOpenGLESTextureCacheRef> cache_ref_;
   fml::CFRef<CVOpenGLESTextureRef> texture_ref_;
   FML_DISALLOW_COPY_AND_ASSIGN(IOSExternalTextureGL);
+  BOOL glTex;
+  unsigned int glTextureId;
 };
 
 }  // namespace shell

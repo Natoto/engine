@@ -23,6 +23,8 @@ IOSGLContext::IOSGLContext() {
                                                   sharegroup:context_.get().sharegroup]);
   }
 
+    [[NSNotificationCenter defaultCenter] postNotificationName:@"EAGLContextsharegroup" object:context_.get().sharegroup];
+
   // TODO:
   // iOS displays are more variable than just P3 or sRGB.  Reading the display
   // gamut just tells us what color space it makes sense to render into.  We

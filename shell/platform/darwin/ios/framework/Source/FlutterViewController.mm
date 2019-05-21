@@ -39,6 +39,10 @@
   BOOL _engineNeedsLaunch;
 }
 
+- (unsigned int)registerTextureId:(unsigned int) textureId {
+    return [_engine.get() registerTextureId:textureId];
+}
+
 #pragma mark - Manage and override all designated initializers
 
 - (instancetype)initWithEngine:(FlutterEngine*)engine

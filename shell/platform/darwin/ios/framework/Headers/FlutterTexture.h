@@ -22,6 +22,7 @@ FLUTTER_EXPORT
 - (int64_t)registerTexture:(NSObject<FlutterTexture>*)texture;
 - (void)textureFrameAvailable:(int64_t)textureId;
 - (void)unregisterTexture:(int64_t)textureId;
+- (unsigned int)registerTextureId:(unsigned int) textureId;
 @end
 
 NS_ASSUME_NONNULL_END

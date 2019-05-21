@@ -640,4 +640,11 @@
   [_flutterEngine platformViewsController] -> RegisterViewFactory(factory, factoryId);
 }
 
+#pragma mark - FlutterTextureRegistry
+
+- (unsigned int)registerTextureId:(unsigned int) textureId {
+    self.iosPlatformView->RegisterExternalTextureId(textureId);
+    return textureId;
+}
+
 @end
