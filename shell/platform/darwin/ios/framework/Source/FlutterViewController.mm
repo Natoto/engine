@@ -422,6 +422,7 @@ NSNotificationName const FlutterSemanticsUpdateNotification = @"FlutterSemantics
 - (void)viewWillDisappear:(BOOL)animated {
   TRACE_EVENT0("flutter", "viewWillDisappear");
   [[_engine.get() lifecycleChannel] sendMessage:@"AppLifecycleState.inactive"];
+  [[[UIApplication sharedApplication] keyWindow] endEditing:YES];
 
   [super viewWillDisappear:animated];
 }

@@ -270,21 +270,31 @@
 
 - (void)maybeSetupPlatformViewChannels {
   if (_shell && self.shell.IsSetup()) {
+  
+      __block FlutterPlatformPlugin *blockmethochannel = (FlutterPlatformPlugin*)_platformPlugin.get();
     [_platformChannel.get() setMethodCallHandler:^(FlutterMethodCall* call, FlutterResult result) {
-      [_platformPlugin.get() handleMethodCall:call result:result];
+      [blockmethochannel handleMethodCall:call result:result];
     }];
 
+    __block __typeof(self)weakSelf = self;
     [_platformViewsChannel.get()
         setMethodCallHandler:^(FlutterMethodCall* call, FlutterResult result) {
-          _platformViewsController->OnMethodCall(call, result);
+        [weakSelf platformCall:call result:result];
         }];
-
+      
+    __block FlutterTextInputPlugin *blockinputplugin = (FlutterTextInputPlugin*)_textInputPlugin.get();
     [_textInputChannel.get() setMethodCallHandler:^(FlutterMethodCall* call, FlutterResult result) {
-      [_textInputPlugin.get() handleMethodCall:call result:result];
+            [blockinputplugin handleMethodCall:call result:result];
     }];
     self.iosPlatformView->SetTextInputPlugin(_textInputPlugin);
   }
 }
+-(void)platformCall:(FlutterMethodCall * )call result:(FlutterResult )result{
+    
+    _platformViewsController.get()->OnMethodCall(call, result);
+    
+}
+
 
 - (flutter::Rasterizer::Screenshot)screenshot:(flutter::Rasterizer::ScreenshotType)type
                                  base64Encode:(bool)base64Encode {
@@ -581,7 +591,7 @@
   self = [super init];
   NSAssert(self, @"Super init cannot be nil");
   _pluginKey = [pluginKey retain];
-  _flutterEngine = [flutterEngine retain];
+  _flutterEngine = flutterEngine;
   return self;
 }
 
