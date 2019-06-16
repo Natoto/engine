@@ -525,15 +525,19 @@
       (message == nil) ? fml::MakeRefCounted<flutter::PlatformMessage>(channel.UTF8String, response)
                        : fml::MakeRefCounted<flutter::PlatformMessage>(
                              channel.UTF8String, flutter::GetVectorFromNSData(message), response);
+    if(_shell->GetPlatformView()){
+        _shell->GetPlatformView()->DispatchPlatformMessage(platformMessage);
+    }
 
-  _shell->GetPlatformView()->DispatchPlatformMessage(platformMessage);
 }
 
 - (void)setMessageHandlerOnChannel:(NSString*)channel
               binaryMessageHandler:(FlutterBinaryMessageHandler)handler {
   NSAssert(channel, @"The channel must not be null");
-  FML_DCHECK(_shell && _shell->IsSetup());
-  self.iosPlatformView->GetPlatformMessageRouter().SetMessageHandler(channel.UTF8String, handler);
+  FML_DCHECK(_shell && _shell->IsSetup() && self.iosPlatformView);
+  if(self.iosPlatformView){
+        self.iosPlatformView->GetPlatformMessageRouter().SetMessageHandler(channel.UTF8String, handler);
+   } 
 }
 
 #pragma mark - FlutterTextureRegistry
