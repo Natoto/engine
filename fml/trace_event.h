@@ -8,6 +8,7 @@
 #include "flutter/fml/build_config.h"
 
 #if defined(OS_FUCHSIA)
+#if !defined(FUCHSIA_SDK)
 
 // Forward to the system tracing mechanism on Fuchsia.
 
@@ -27,7 +28,8 @@
 #define TRACE_EVENT_ASYNC_END1(a, b, c, d, e) TRACE_ASYNC_END(a, b, c, d, e)
 #define TRACE_EVENT_INSTANT0(a, b) TRACE_INSTANT(a, b, TRACE_SCOPE_THREAD)
 
-#endif  // defined(OS_FUCHSIA)
+#endif  //  !defined(FUCHSIA_SDK)
+#endif  //  defined(OS_FUCHSIA)
 
 #include <cstddef>
 #include <cstdint>
@@ -39,8 +41,7 @@
 #include "flutter/fml/time/time_point.h"
 #include "third_party/dart/runtime/include/dart_tools_api.h"
 
-#if !defined(OS_FUCHSIA)
-
+#if !defined(OS_FUCHSIA) || defined(FUCHSIA_SDK)
 #ifndef TRACE_EVENT_HIDE_MACROS
 
 #define __FML__TOKEN_CAT__(x, y) x##y
@@ -103,8 +104,7 @@
   ::fml::tracing::TraceEventFlowEnd0(category, name, id);
 
 #endif  // TRACE_EVENT_HIDE_MACROS
-
-#endif  // !defined(OS_FUCHSIA)
+#endif  // !defined(OS_FUCHSIA) || defined(FUCHSIA_SDK)
 
 namespace fml {
 namespace tracing {
@@ -242,6 +242,41 @@ class ScopedInstantEnd {
   const char* label_;
 
   FML_DISALLOW_COPY_AND_ASSIGN(ScopedInstantEnd);
+};
+
+// A move-only utility object that creates a new flow with a unique ID and
+// automatically ends it when it goes out of scope. When tracing using multiple
+// overlapping flows, it often gets hard to make sure to end the flow
+// (especially with early returns), or, end/step on the wrong flow. This
+// leads to corrupted or missing traces in the UI.
+class TraceFlow {
+ public:
+  TraceFlow(const char* label) : label_(label), nonce_(TraceNonce()) {
+    TraceEventFlowBegin0("flutter", label_, nonce_);
+  }
+
+  ~TraceFlow() { End(label_); }
+
+  TraceFlow(TraceFlow&& other) : label_(other.label_), nonce_(other.nonce_) {
+    other.nonce_ = 0;
+  }
+
+  void Step(const char* label) const {
+    TraceEventFlowStep0("flutter", label, nonce_);
+  }
+
+  void End(const char* label = nullptr) {
+    if (nonce_ != 0) {
+      TraceEventFlowEnd0("flutter", label == nullptr ? label_ : label, nonce_);
+      nonce_ = 0;
+    }
+  }
+
+ private:
+  const char* label_;
+  size_t nonce_;
+
+  FML_DISALLOW_COPY_AND_ASSIGN(TraceFlow);
 };
 
 }  // namespace tracing

@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:typed_data';
 import 'dart:ui';
+import 'dart:convert';
 
 void main() {}
 
@@ -9,7 +10,7 @@ void customEntrypoint() {
   sayHiFromCustomEntrypoint();
 }
 
-void sayHiFromCustomEntrypoint() native "SayHiFromCustomEntrypoint";
+void sayHiFromCustomEntrypoint() native 'SayHiFromCustomEntrypoint';
 
 
 @pragma('vm:entry-point')
@@ -19,9 +20,9 @@ void customEntrypoint1() {
   sayHiFromCustomEntrypoint3();
 }
 
-void sayHiFromCustomEntrypoint1() native "SayHiFromCustomEntrypoint1";
-void sayHiFromCustomEntrypoint2() native "SayHiFromCustomEntrypoint2";
-void sayHiFromCustomEntrypoint3() native "SayHiFromCustomEntrypoint3";
+void sayHiFromCustomEntrypoint1() native 'SayHiFromCustomEntrypoint1';
+void sayHiFromCustomEntrypoint2() native 'SayHiFromCustomEntrypoint2';
+void sayHiFromCustomEntrypoint3() native 'SayHiFromCustomEntrypoint3';
 
 
 @pragma('vm:entry-point')
@@ -45,22 +46,23 @@ Float64List kTestTransform = () {
 }();
 
 void signalNativeTest() native 'SignalNativeTest';
-void notifySemanticsEnabled(bool enabled) native 'NotifyTestData';
-void notifyAccessibilityFeatures(bool reduceMotion) native 'NotifyTestData';
-void notifySemanticsAction(int nodeId, int action, List<int> data) native 'NotifyTestData';
+void signalNativeMessage(String message) native 'SignalNativeMessage';
+void notifySemanticsEnabled(bool enabled) native 'NotifySemanticsEnabled';
+void notifyAccessibilityFeatures(bool reduceMotion) native 'NotifyAccessibilityFeatures';
+void notifySemanticsAction(int nodeId, int action, List<int> data) native 'NotifySemanticsAction';
 
 /// Returns a future that completes when `window.onSemanticsEnabledChanged`
 /// fires.
-Future get semanticsChanged {
-  final Completer semanticsChanged = Completer();
+Future<void> get semanticsChanged {
+  final Completer<void> semanticsChanged = Completer<void>();
   window.onSemanticsEnabledChanged = semanticsChanged.complete;
   return semanticsChanged.future;
 }
 
 /// Returns a future that completes when `window.onAccessibilityFeaturesChanged`
 /// fires.
-Future get accessibilityFeaturesChanged {
-  final Completer featuresChanged = Completer();
+Future<void> get accessibilityFeaturesChanged {
+  final Completer<void> featuresChanged = Completer<void>();
   window.onAccessibilityFeaturesChanged = featuresChanged.complete;
   return featuresChanged.future;
 }
@@ -73,7 +75,7 @@ class SemanticsActionData {
 }
 
 Future<SemanticsActionData> get semanticsAction {
-  final Completer actionReceived = Completer<SemanticsActionData>();
+  final Completer<SemanticsActionData> actionReceived = Completer<SemanticsActionData>();
   window.onSemanticsAction = (int id, SemanticsAction action, ByteData args) {
     actionReceived.complete(SemanticsActionData(id, action, args));
   };
@@ -81,7 +83,7 @@ Future<SemanticsActionData> get semanticsAction {
 }
 
 @pragma('vm:entry-point')
-void a11y_main() async {
+void a11y_main() async { // ignore: non_constant_identifier_names
   // Return initial state (semantics disabled).
   notifySemanticsEnabled(window.semanticsEnabled);
 
@@ -143,4 +145,25 @@ void a11y_main() async {
   // Await semantics disabled from embedder.
   await semanticsChanged;
   notifySemanticsEnabled(window.semanticsEnabled);
+}
+
+
+@pragma('vm:entry-point')
+void platform_messages_response() {
+  window.onPlatformMessage = (String name, ByteData data, PlatformMessageResponseCallback callback) {
+    callback(data);
+  };
+  signalNativeTest();
+}
+
+@pragma('vm:entry-point')
+void platform_messages_no_response() {
+  window.onPlatformMessage = (String name, ByteData data, PlatformMessageResponseCallback callback) {
+    var list = data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes);
+    signalNativeMessage(utf8.decode(list));
+    // This does nothing because no one is listening on the other side. But complete the loop anyway
+    // to make sure all null checking on response handles in the engine is in place.
+    callback(data);
+  };
+  signalNativeTest();
 }

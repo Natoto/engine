@@ -49,9 +49,12 @@ class DartIsolate : public UIDartState {
       std::unique_ptr<Window> window,
       fml::WeakPtr<SnapshotDelegate> snapshot_delegate,
       fml::WeakPtr<IOManager> io_manager,
+      fml::WeakPtr<ImageDecoder> image_decoder,
       std::string advisory_script_uri,
       std::string advisory_script_entrypoint,
-      Dart_IsolateFlags* flags = nullptr);
+      Dart_IsolateFlags* flags,
+      fml::closure isolate_create_callback,
+      fml::closure isolate_shutdown_callback);
 
   DartIsolate(const Settings& settings,
               fml::RefPtr<const DartSnapshot> isolate_snapshot,
@@ -59,15 +62,20 @@ class DartIsolate : public UIDartState {
               TaskRunners task_runners,
               fml::WeakPtr<SnapshotDelegate> snapshot_delegate,
               fml::WeakPtr<IOManager> io_manager,
+              fml::WeakPtr<ImageDecoder> image_decoder,
               std::string advisory_script_uri,
               std::string advisory_script_entrypoint,
-              ChildIsolatePreparer child_isolate_preparer);
+              ChildIsolatePreparer child_isolate_preparer,
+              fml::closure isolate_create_callback,
+              fml::closure isolate_shutdown_callback);
 
   ~DartIsolate() override;
 
   const Settings& GetSettings() const;
 
   Phase GetPhase() const;
+
+  std::string GetServiceId();
 
   FML_WARN_UNUSED_RESULT
   bool PrepareForRunningFromPrecompiledCode();
@@ -85,11 +93,14 @@ class DartIsolate : public UIDartState {
       std::vector<std::unique_ptr<const fml::Mapping>> kernels);
 
   FML_WARN_UNUSED_RESULT
-  bool Run(const std::string& entrypoint, fml::closure on_run = nullptr);
+  bool Run(const std::string& entrypoint,
+           const std::vector<std::string>& args,
+           fml::closure on_run = nullptr);
 
   FML_WARN_UNUSED_RESULT
   bool RunFromLibrary(const std::string& library_name,
                       const std::string& entrypoint,
+                      const std::vector<std::string>& args,
                       fml::closure on_run = nullptr);
 
   FML_WARN_UNUSED_RESULT
@@ -128,9 +139,11 @@ class DartIsolate : public UIDartState {
   std::vector<std::unique_ptr<AutoFireClosure>> shutdown_callbacks_;
   ChildIsolatePreparer child_isolate_preparer_ = nullptr;
   fml::RefPtr<fml::TaskRunner> message_handling_task_runner_;
+  const fml::closure isolate_create_callback_;
+  const fml::closure isolate_shutdown_callback_;
 
-  FML_WARN_UNUSED_RESULT
-  bool Initialize(Dart_Isolate isolate, bool is_root_isolate);
+  FML_WARN_UNUSED_RESULT bool Initialize(Dart_Isolate isolate,
+                                         bool is_root_isolate);
 
   void SetMessageHandlingTaskRunner(fml::RefPtr<fml::TaskRunner> runner,
                                     bool is_root_isolate);
@@ -145,8 +158,8 @@ class DartIsolate : public UIDartState {
 
   void OnShutdownCallback();
 
-  // |Dart_IsolateCreateCallback|
-  static Dart_Isolate DartIsolateCreateCallback(
+  // |Dart_IsolateGroupCreateCallback|
+  static Dart_Isolate DartIsolateGroupCreateCallback(
       const char* advisory_script_uri,
       const char* advisory_script_entrypoint,
       const char* package_root,
@@ -175,11 +188,12 @@ class DartIsolate : public UIDartState {
 
   // |Dart_IsolateShutdownCallback|
   static void DartIsolateShutdownCallback(
-      std::shared_ptr<DartIsolate>* embedder_isolate);
+      std::shared_ptr<DartIsolate>* isolate_group_data,
+      std::shared_ptr<DartIsolate>* isolate_data);
 
-  // |Dart_IsolateCleanupCallback|
-  static void DartIsolateCleanupCallback(
-      std::shared_ptr<DartIsolate>* embedder_isolate);
+  // |Dart_IsolateGroupCleanupCallback|
+  static void DartIsolateGroupCleanupCallback(
+      std::shared_ptr<DartIsolate>* isolate_group_data);
 
   FML_DISALLOW_COPY_AND_ASSIGN(DartIsolate);
 };

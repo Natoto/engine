@@ -7,8 +7,10 @@
 
 #include <string>
 
+#include "flutter/fml/file.h"
 #include "gtest/gtest.h"
 
+namespace flutter {
 namespace testing {
 
 // Returns the directory containing the test fixture for the target if this
@@ -16,8 +18,11 @@ namespace testing {
 // error.
 const char* GetFixturesPath();
 
+fml::UniqueFD OpenFixture(std::string fixture_name);
+
 std::string GetCurrentTestName();
 
 }  // namespace testing
+}  // namespace flutter
 
 #endif  // TESTING_TESTING_H_

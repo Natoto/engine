@@ -37,9 +37,12 @@ std::weak_ptr<DartIsolate> DartIsolate::CreateRootIsolate(
     std::unique_ptr<Window> window,
     fml::WeakPtr<SnapshotDelegate> snapshot_delegate,
     fml::WeakPtr<IOManager> io_manager,
+    fml::WeakPtr<ImageDecoder> image_decoder,
     std::string advisory_script_uri,
     std::string advisory_script_entrypoint,
-    Dart_IsolateFlags* flags) {
+    Dart_IsolateFlags* flags,
+    fml::closure isolate_create_callback,
+    fml::closure isolate_shutdown_callback) {
   TRACE_EVENT0("flutter", "DartIsolate::CreateRootIsolate");
   Dart_Isolate vm_isolate = nullptr;
   std::weak_ptr<DartIsolate> embedder_isolate;
@@ -49,6 +52,9 @@ std::weak_ptr<DartIsolate> DartIsolate::CreateRootIsolate(
   // Since this is the root isolate, we fake a parent embedder data object. We
   // cannot use unique_ptr here because the destructor is private (since the
   // isolate lifecycle is entirely managed by the VM).
+  //
+  // The child isolate preparer is null but will be set when the isolate is
+  // being prepared to run.
   auto root_embedder_data = std::make_unique<std::shared_ptr<DartIsolate>>(
       std::make_shared<DartIsolate>(
           settings,                      // settings
@@ -57,10 +63,12 @@ std::weak_ptr<DartIsolate> DartIsolate::CreateRootIsolate(
           task_runners,                  // task runners
           std::move(snapshot_delegate),  // snapshot delegate
           std::move(io_manager),         // IO manager
+          std::move(image_decoder),      // Image Decoder
           advisory_script_uri,           // advisory URI
           advisory_script_entrypoint,    // advisory entrypoint
-          nullptr  // child isolate preparer will be set when this isolate is
-                   // prepared to run
+          nullptr,                       // child isolate preparer
+          isolate_create_callback,       // isolate create callback
+          isolate_shutdown_callback      // isolate shutdown callback
           ));
 
   std::tie(vm_isolate, embedder_isolate) = CreateDartVMAndEmbedderObjectPair(
@@ -100,14 +108,18 @@ DartIsolate::DartIsolate(const Settings& settings,
                          TaskRunners task_runners,
                          fml::WeakPtr<SnapshotDelegate> snapshot_delegate,
                          fml::WeakPtr<IOManager> io_manager,
+                         fml::WeakPtr<ImageDecoder> image_decoder,
                          std::string advisory_script_uri,
                          std::string advisory_script_entrypoint,
-                         ChildIsolatePreparer child_isolate_preparer)
+                         ChildIsolatePreparer child_isolate_preparer,
+                         fml::closure isolate_create_callback,
+                         fml::closure isolate_shutdown_callback)
     : UIDartState(std::move(task_runners),
                   settings.task_observer_add,
                   settings.task_observer_remove,
                   std::move(snapshot_delegate),
                   std::move(io_manager),
+                  std::move(image_decoder),
                   advisory_script_uri,
                   advisory_script_entrypoint,
                   settings.log_tag,
@@ -116,7 +128,9 @@ DartIsolate::DartIsolate(const Settings& settings,
       settings_(settings),
       isolate_snapshot_(std::move(isolate_snapshot)),
       shared_snapshot_(std::move(shared_snapshot)),
-      child_isolate_preparer_(std::move(child_isolate_preparer)) {
+      child_isolate_preparer_(std::move(child_isolate_preparer)),
+      isolate_create_callback_(isolate_create_callback),
+      isolate_shutdown_callback_(isolate_shutdown_callback) {
   FML_DCHECK(isolate_snapshot_) << "Must contain a valid isolate snapshot.";
   phase_ = Phase::Uninitialized;
 }
@@ -129,6 +143,13 @@ const Settings& DartIsolate::GetSettings() const {
 
 DartIsolate::Phase DartIsolate::GetPhase() const {
   return phase_;
+}
+
+std::string DartIsolate::GetServiceId() {
+  const char* service_id_buf = Dart_IsolateServiceId(isolate());
+  std::string service_id(service_id_buf);
+  free(const_cast<char*>(service_id_buf));
+  return service_id;
 }
 
 bool DartIsolate::Initialize(Dart_Isolate dart_isolate, bool is_root_isolate) {
@@ -146,7 +167,7 @@ bool DartIsolate::Initialize(Dart_Isolate dart_isolate, bool is_root_isolate) {
   }
 
   auto* isolate_data = static_cast<std::shared_ptr<DartIsolate>*>(
-      Dart_IsolateData(dart_isolate));
+      Dart_IsolateGroupData(dart_isolate));
   if (isolate_data->get() != this) {
     return false;
   }
@@ -157,7 +178,7 @@ bool DartIsolate::Initialize(Dart_Isolate dart_isolate, bool is_root_isolate) {
   // We are entering a new scope (for the first time since initialization) and
   // we want to restore the current scope to null when we exit out of this
   // method. This balances the implicit Dart_EnterIsolate call made by
-  // Dart_CreateIsolate (which calls the Initialize).
+  // Dart_CreateIsolateGroup (which calls the Initialize).
   Dart_ExitIsolate();
 
   tonic::DartIsolateScope scope(isolate());
@@ -279,6 +300,11 @@ bool DartIsolate::PrepareForRunningFromPrecompiledCode() {
   child_isolate_preparer_ = [](DartIsolate* isolate) {
     return isolate->PrepareForRunningFromPrecompiledCode();
   };
+
+  if (isolate_create_callback_) {
+    isolate_create_callback_();
+  }
+
   phase_ = Phase::Ready;
   return true;
 }
@@ -365,7 +391,13 @@ bool DartIsolate::PrepareForRunningFromKernel(
       return true;
     };
   }
+
+  if (isolate_create_callback_) {
+    isolate_create_callback_();
+  }
+
   phase_ = Phase::Ready;
+
   return true;
 }
 
@@ -425,7 +457,8 @@ bool DartIsolate::MarkIsolateRunnable() {
 }
 
 FML_WARN_UNUSED_RESULT
-static bool InvokeMainEntrypoint(Dart_Handle user_entrypoint_function) {
+static bool InvokeMainEntrypoint(Dart_Handle user_entrypoint_function,
+                                 Dart_Handle args) {
   if (tonic::LogIfError(user_entrypoint_function)) {
     FML_LOG(ERROR) << "Could not resolve main entrypoint function.";
     return false;
@@ -442,7 +475,7 @@ static bool InvokeMainEntrypoint(Dart_Handle user_entrypoint_function) {
 
   if (tonic::LogIfError(tonic::DartInvokeField(
           Dart_LookupLibrary(tonic::ToDart("dart:ui")), "_runMainZoned",
-          {start_main_isolate_function, user_entrypoint_function}))) {
+          {start_main_isolate_function, user_entrypoint_function, args}))) {
     FML_LOG(ERROR) << "Could not invoke the main entrypoint.";
     return false;
   }
@@ -451,7 +484,9 @@ static bool InvokeMainEntrypoint(Dart_Handle user_entrypoint_function) {
 }
 
 FML_WARN_UNUSED_RESULT
-bool DartIsolate::Run(const std::string& entrypoint_name, fml::closure on_run) {
+bool DartIsolate::Run(const std::string& entrypoint_name,
+                      const std::vector<std::string>& args,
+                      fml::closure on_run) {
   TRACE_EVENT0("flutter", "DartIsolate::Run");
   if (phase_ != Phase::Ready) {
     return false;
@@ -462,7 +497,9 @@ bool DartIsolate::Run(const std::string& entrypoint_name, fml::closure on_run) {
   auto user_entrypoint_function =
       Dart_GetField(Dart_RootLibrary(), tonic::ToDart(entrypoint_name.c_str()));
 
-  if (!InvokeMainEntrypoint(user_entrypoint_function)) {
+  auto entrypoint_args = tonic::ToDart(args);
+
+  if (!InvokeMainEntrypoint(user_entrypoint_function, entrypoint_args)) {
     return false;
   }
 
@@ -478,6 +515,7 @@ bool DartIsolate::Run(const std::string& entrypoint_name, fml::closure on_run) {
 FML_WARN_UNUSED_RESULT
 bool DartIsolate::RunFromLibrary(const std::string& library_name,
                                  const std::string& entrypoint_name,
+                                 const std::vector<std::string>& args,
                                  fml::closure on_run) {
   TRACE_EVENT0("flutter", "DartIsolate::RunFromLibrary");
   if (phase_ != Phase::Ready) {
@@ -490,7 +528,9 @@ bool DartIsolate::RunFromLibrary(const std::string& library_name,
       Dart_GetField(Dart_LookupLibrary(tonic::ToDart(library_name.c_str())),
                     tonic::ToDart(entrypoint_name.c_str()));
 
-  if (!InvokeMainEntrypoint(user_entrypoint_function)) {
+  auto entrypoint_args = tonic::ToDart(args);
+
+  if (!InvokeMainEntrypoint(user_entrypoint_function, entrypoint_args)) {
     return false;
   }
 
@@ -561,9 +601,12 @@ Dart_Isolate DartIsolate::DartCreateAndStartServiceIsolate(
           nullptr,                        // window
           {},                             // snapshot delegate
           {},                             // IO Manager
+          {},                             // Image Decoder
           DART_VM_SERVICE_ISOLATE_NAME,   // script uri
           DART_VM_SERVICE_ISOLATE_NAME,   // script entrypoint
-          flags                           // flags
+          flags,                          // flags
+          nullptr,                        // isolate create callback
+          nullptr                         // isolate shutdown callback
       );
 
   std::shared_ptr<DartIsolate> service_isolate = weak_service_isolate.lock();
@@ -575,9 +618,9 @@ Dart_Isolate DartIsolate::DartCreateAndStartServiceIsolate(
 
   tonic::DartState::Scope scope(service_isolate);
   if (!DartServiceIsolate::Startup(
-          settings.ipv6 ? "::1" : "127.0.0.1",  // server IP address
-          settings.observatory_port,            // server observatory port
-          tonic::DartState::HandleLibraryTag,   // embedder library tag handler
+          settings.observatory_host,           // server IP address
+          settings.observatory_port,           // server observatory port
+          tonic::DartState::HandleLibraryTag,  // embedder library tag handler
           false,  //  disable websocket origin check
           settings.disable_service_auth_codes,  // disable VM service auth codes
           error                                 // error (out)
@@ -598,8 +641,8 @@ Dart_Isolate DartIsolate::DartCreateAndStartServiceIsolate(
   return service_isolate->isolate();
 }
 
-// |Dart_IsolateCreateCallback|
-Dart_Isolate DartIsolate::DartIsolateCreateCallback(
+// |Dart_IsolateGroupCreateCallback|
+Dart_Isolate DartIsolate::DartIsolateGroupCreateCallback(
     const char* advisory_script_uri,
     const char* advisory_script_entrypoint,
     const char* package_root,
@@ -662,6 +705,7 @@ DartIsolate::CreateDartVMAndEmbedderObjectPair(
     TaskRunners null_task_runners(advisory_script_uri, nullptr, nullptr,
                                   nullptr, nullptr);
 
+    // Copy most fields from the parent to the child.
     embedder_isolate = std::make_unique<std::shared_ptr<DartIsolate>>(
         std::make_shared<DartIsolate>(
             (*raw_embedder_isolate)->GetSettings(),         // settings
@@ -670,23 +714,28 @@ DartIsolate::CreateDartVMAndEmbedderObjectPair(
             null_task_runners,                              // task_runners
             fml::WeakPtr<SnapshotDelegate>{},               // snapshot_delegate
             fml::WeakPtr<IOManager>{},                      // io_manager
+            fml::WeakPtr<ImageDecoder>{},                   // io_manager
             advisory_script_uri,         // advisory_script_uri
             advisory_script_entrypoint,  // advisory_script_entrypoint
-            (*raw_embedder_isolate)->child_isolate_preparer_));
+            (*raw_embedder_isolate)->child_isolate_preparer_,    // preparer
+            (*raw_embedder_isolate)->isolate_create_callback_,   // on create
+            (*raw_embedder_isolate)->isolate_shutdown_callback_  // on shutdown
+            )
+
+    );
   }
 
   // Create the Dart VM isolate and give it the embedder object as the baton.
-  Dart_Isolate isolate = Dart_CreateIsolate(
+  Dart_Isolate isolate = Dart_CreateIsolateGroup(
       advisory_script_uri,         //
       advisory_script_entrypoint,  //
-      (*embedder_isolate)
-          ->GetIsolateSnapshot()
-          ->GetData()
-          ->GetSnapshotPointer(),
-      (*embedder_isolate)->GetIsolateSnapshot()->GetInstructionsIfPresent(),
-      (*embedder_isolate)->GetSharedSnapshot()->GetDataIfPresent(),
-      (*embedder_isolate)->GetSharedSnapshot()->GetInstructionsIfPresent(),
-      flags, embedder_isolate.get(), error);
+      (*embedder_isolate)->GetIsolateSnapshot()->GetDataMapping(),
+      (*embedder_isolate)->GetIsolateSnapshot()->GetInstructionsMapping(),
+      (*embedder_isolate)->GetSharedSnapshot()->GetDataMapping(),
+      (*embedder_isolate)->GetSharedSnapshot()->GetInstructionsMapping(), flags,
+      embedder_isolate.get(),  // isolate_group_data
+      embedder_isolate.get(),  // isolate_group
+      error);
 
   if (isolate == nullptr) {
     FML_DLOG(ERROR) << *error;
@@ -729,14 +778,15 @@ DartIsolate::CreateDartVMAndEmbedderObjectPair(
 
 // |Dart_IsolateShutdownCallback|
 void DartIsolate::DartIsolateShutdownCallback(
-    std::shared_ptr<DartIsolate>* embedder_isolate) {
-  embedder_isolate->get()->OnShutdownCallback();
+    std::shared_ptr<DartIsolate>* isolate_group_data,
+    std::shared_ptr<DartIsolate>* isolate_data) {
+  isolate_group_data->get()->OnShutdownCallback();
 }
 
-// |Dart_IsolateCleanupCallback|
-void DartIsolate::DartIsolateCleanupCallback(
-    std::shared_ptr<DartIsolate>* embedder_isolate) {
-  delete embedder_isolate;
+// |Dart_IsolateGroupCleanupCallback|
+void DartIsolate::DartIsolateGroupCleanupCallback(
+    std::shared_ptr<DartIsolate>* isolate_data) {
+  delete isolate_data;
 }
 
 fml::RefPtr<const DartSnapshot> DartIsolate::GetIsolateSnapshot() const {
@@ -757,7 +807,18 @@ void DartIsolate::AddIsolateShutdownCallback(fml::closure closure) {
 }
 
 void DartIsolate::OnShutdownCallback() {
+  {
+    tonic::DartApiScope api_scope;
+    Dart_Handle sticky_error = Dart_GetStickyError();
+    if (!Dart_IsNull(sticky_error) && !Dart_IsFatalError(sticky_error)) {
+      FML_LOG(ERROR) << Dart_GetError(sticky_error);
+    }
+  }
+
   shutdown_callbacks_.clear();
+  if (isolate_shutdown_callback_) {
+    isolate_shutdown_callback_();
+  }
 }
 
 DartIsolate::AutoFireClosure::AutoFireClosure(fml::closure closure)
