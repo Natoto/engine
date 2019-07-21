@@ -328,7 +328,7 @@ Shell::~Shell() {
   fml::TaskRunner::RunNowOrPostTask(
       task_runners_.GetUITaskRunner(),
       fml::MakeCopyable([engine = std::move(engine_), &ui_latch]() mutable {
-        engine.reset();
+        engine.reset(nullptr);
         ui_latch.Signal();
       }));
   ui_latch.Wait();
@@ -337,7 +337,7 @@ Shell::~Shell() {
       task_runners_.GetGPUTaskRunner(),
       fml::MakeCopyable(
           [rasterizer = std::move(rasterizer_), &gpu_latch]() mutable {
-            rasterizer.reset();
+            rasterizer.reset(nullptr);
             gpu_latch.Signal();
           }));
   gpu_latch.Wait();
@@ -347,7 +347,7 @@ Shell::~Shell() {
       fml::MakeCopyable([io_manager = std::move(io_manager_),
                          platform_view = platform_view_.get(),
                          &io_latch]() mutable {
-        io_manager.reset();
+        io_manager.reset(nullptr);
         if (platform_view) {
           platform_view->ReleaseResourceContext();
         }
@@ -363,7 +363,7 @@ Shell::~Shell() {
       task_runners_.GetPlatformTaskRunner(),
       fml::MakeCopyable([platform_view = std::move(platform_view_),
                          &platform_latch]() mutable {
-        platform_view.reset();
+        platform_view.reset(nullptr);
         platform_latch.Signal();
       }));
   platform_latch.Wait();

@@ -274,20 +274,28 @@
 
 - (void)maybeSetupPlatformViewChannels {
   if (_shell && self.shell.IsSetup()) {
-    [_platformChannel.get() setMethodCallHandler:^(FlutterMethodCall* call, FlutterResult result) {
-      [_platformPlugin.get() handleMethodCall:call result:result];
-    }];
-
-    [_platformViewsChannel.get()
-        setMethodCallHandler:^(FlutterMethodCall* call, FlutterResult result) {
-          _platformViewsController->OnMethodCall(call, result);
-        }];
-
-    [_textInputChannel.get() setMethodCallHandler:^(FlutterMethodCall* call, FlutterResult result) {
-      [_textInputPlugin.get() handleMethodCall:call result:result];
-    }];
-    self.iosPlatformView->SetTextInputPlugin(_textInputPlugin);
+      __block FlutterPlatformPlugin *blockmethochannel = (FlutterPlatformPlugin*)_platformPlugin.get();
+      [_platformChannel.get() setMethodCallHandler:^(FlutterMethodCall* call, FlutterResult result) {
+          [blockmethochannel handleMethodCall:call result:result];
+      }];
+      
+      __block __typeof(self)weakSelf = self;
+      [_platformViewsChannel.get()
+       setMethodCallHandler:^(FlutterMethodCall* call, FlutterResult result) {
+           [weakSelf platformCall:call result:result];
+       }];
+      
+      __block FlutterTextInputPlugin *blockinputplugin = (FlutterTextInputPlugin*)_textInputPlugin.get();
+      [_textInputChannel.get() setMethodCallHandler:^(FlutterMethodCall* call, FlutterResult result) {
+          [blockinputplugin handleMethodCall:call result:result];
+      }];
+      self.iosPlatformView->SetTextInputPlugin(_textInputPlugin);
   }
+}
+-(void)platformCall:(FlutterMethodCall * )call result:(FlutterResult )result{
+    
+    _platformViewsController.get()->OnMethodCall(call, result);
+    
 }
 
 - (flutter::Rasterizer::Screenshot)screenshot:(flutter::Rasterizer::ScreenshotType)type
@@ -520,14 +528,18 @@
                        : fml::MakeRefCounted<flutter::PlatformMessage>(
                              channel.UTF8String, flutter::GetVectorFromNSData(message), response);
 
-  _shell->GetPlatformView()->DispatchPlatformMessage(platformMessage);
+    if(_shell->GetPlatformView()){
+        _shell->GetPlatformView()->DispatchPlatformMessage(platformMessage);
+    }
 }
 
 - (void)setMessageHandlerOnChannel:(NSString*)channel
               binaryMessageHandler:(FlutterBinaryMessageHandler)handler {
   NSAssert(channel, @"The channel must not be null");
-  FML_DCHECK(_shell && _shell->IsSetup());
-  self.iosPlatformView->GetPlatformMessageRouter().SetMessageHandler(channel.UTF8String, handler);
+  FML_DCHECK(_shell && _shell->IsSetup() && self.iosPlatformView);
+  if(self.iosPlatformView){
+        self.iosPlatformView->GetPlatformMessageRouter().SetMessageHandler(channel.UTF8String, handler);
+  } 
 }
 
 #pragma mark - FlutterTextureRegistry
