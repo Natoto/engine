@@ -47,7 +47,7 @@ class scoped_nsprotocol {
   template <typename NSU>
   scoped_nsprotocol(const scoped_nsprotocol<NSU>& that) : object_([that.get() retain]) {}
 
-  ~scoped_nsprotocol() { [object_ release]; }
+  ~scoped_nsprotocol() { [object_ release]; object_ = nil;}
 
   scoped_nsprotocol& operator=(const scoped_nsprotocol<NST>& that) {
     reset([that.get() retain]);
@@ -58,8 +58,9 @@ class scoped_nsprotocol {
     // We intentionally do not check that object != object_ as the caller must
     // either already have an ownership claim over whatever it passes to this
     // method, or call it with the |RETAIN| policy which will have ensured that
-    // the object is retained once more when reaching this point.
+    // the object is retained once more when reaching this point. 
     [object_ release];
+    object_ = nil;
     object_ = object;
   }
 

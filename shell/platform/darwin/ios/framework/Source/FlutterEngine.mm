@@ -97,6 +97,9 @@
 }
 
 - (void)dealloc {
+  NSLog(@"%s",__FUNCTION__);
+  [self destroyContext];
+  [_pluginPublications removeAllObjects];
   [_pluginPublications release];
   [super dealloc];
 }
@@ -164,8 +167,8 @@
 }
 
 - (void)destroyContext {
-  [self resetChannels];
-  _shell.reset();
+  [self resetChannels]; 
+  _shell.reset(nullptr);
   _threadHost.Reset();
 }
 
@@ -212,14 +215,18 @@
 }
 
 - (void)resetChannels {
-  _localizationChannel.reset();
-  _navigationChannel.reset();
-  _platformChannel.reset();
-  _platformViewsChannel.reset();
-  _textInputChannel.reset();
-  _lifecycleChannel.reset();
-  _systemChannel.reset();
-  _settingsChannel.reset();
+  _localizationChannel.reset(nullptr);
+  _navigationChannel.reset(nullptr);
+  _platformChannel.reset(nullptr);
+  _platformViewsChannel.reset(nullptr);
+  _textInputChannel.reset(nullptr);
+  _lifecycleChannel.reset(nullptr);
+  _systemChannel.reset(nullptr);
+  _settingsChannel.reset(nullptr);
+  _platformViewsController.reset();
+  [_pluginPublications removeAllObjects];
+  NSLog(@"%s",__FUNCTION__);
+  NSLog(@"_systemChannel %@",_systemChannel.get());
 }
 
 // If you add a channel, be sure to also update `resetChannels`.
@@ -528,7 +535,7 @@
                        : fml::MakeRefCounted<flutter::PlatformMessage>(
                              channel.UTF8String, flutter::GetVectorFromNSData(message), response);
 
-    if(_shell->GetPlatformView()){
+    if(channel && message && _shell->GetPlatformView()){
         _shell->GetPlatformView()->DispatchPlatformMessage(platformMessage);
     }
 }
@@ -574,8 +581,11 @@
 
 - (NSObject<FlutterPluginRegistrar>*)registrarForPlugin:(NSString*)pluginKey {
   NSAssert(self.pluginPublications[pluginKey] == nil, @"Duplicate plugin key: %@", pluginKey);
-  self.pluginPublications[pluginKey] = [NSNull null];
-  return [[FlutterEngineRegistrar alloc] initWithPlugin:pluginKey flutterEngine:self];
+  FlutterEngineRegistrar * reg = [[FlutterEngineRegistrar alloc] initWithPlugin:pluginKey flutterEngine:self];
+  [reg release];
+  _pluginPublications[pluginKey] = [NSNull null];
+  
+  return reg;
 }
 
 - (BOOL)hasPlugin:(NSString*)pluginKey {
@@ -586,24 +596,27 @@
   return _pluginPublications[pluginKey];
 }
 
+ 
+
 @end
 
 @implementation FlutterEngineRegistrar {
   NSString* _pluginKey;
-  FlutterEngine* _flutterEngine;
+  __block FlutterEngine* _flutterEngine;
 }
 
 - (instancetype)initWithPlugin:(NSString*)pluginKey flutterEngine:(FlutterEngine*)flutterEngine {
   self = [super init];
   NSAssert(self, @"Super init cannot be nil");
-  _pluginKey = [pluginKey retain];
-  _flutterEngine = [flutterEngine retain];
+  _pluginKey = pluginKey;// [pluginKey retain]; 
+  _flutterEngine = flutterEngine;// [flutterEngine retain];
   return self;
 }
 
 - (void)dealloc {
-  [_pluginKey release];
-  [_flutterEngine release];
+    NSLog(@"%s",__FUNCTION__);
+//  [_pluginKey release];
+  //[_flutterEngine release];
   [super dealloc];
 }
 
@@ -621,6 +634,7 @@
 
 - (void)addMethodCallDelegate:(NSObject<FlutterPlugin>*)delegate
                       channel:(FlutterMethodChannel*)channel {
+    
   [channel setMethodCallHandler:^(FlutterMethodCall* call, FlutterResult result) {
     [delegate handleMethodCall:call result:result];
   }];

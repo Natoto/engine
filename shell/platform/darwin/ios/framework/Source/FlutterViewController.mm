@@ -474,6 +474,7 @@ NSNotificationName const FlutterSemanticsUpdateNotification = @"FlutterSemantics
 - (void)dealloc {
     NSLog(@"%s",__FUNCTION__);
   [_engine.get() notifyViewControllerDeallocated];
+  [_engine.get() destroyContext];
   [[NSNotificationCenter defaultCenter] removeObserver:self];
   [super dealloc];
 }

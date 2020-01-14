@@ -38,8 +38,10 @@
 }
 
 - (void)dealloc {
+  NSLog(@"%s",__FUNCTION__);
   [_name release];
   [_codec release];
+  _messenger = nil;
   [super dealloc];
 }
 
